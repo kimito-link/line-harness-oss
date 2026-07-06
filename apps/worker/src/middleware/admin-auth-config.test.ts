@@ -14,9 +14,11 @@ const WORKERS = 'https://your-worker.your-subdomain.workers.dev';
 
 describe('registrableDomain', () => {
   test('treats each *.pages.dev / *.workers.dev host as its own site', () => {
-    expect(registrableDomain('your-admin.pages.dev')).toBe('your-admin.pages.dev');
-    expect(registrableDomain('your-worker.your-subdomain.workers.dev')).toBe(
-      'line-crm-api.workers.dev',
+    // 実環境のドメイン実値は使わない: OSS sync の secret redaction (sed) が
+    // テストリテラルを書き換えて input/expected の整合が壊れるため、中立な例で書く。
+    expect(registrableDomain('my-admin.pages.dev')).toBe('my-admin.pages.dev');
+    expect(registrableDomain('my-worker.my-subdomain.workers.dev')).toBe(
+      'my-subdomain.workers.dev',
     );
   });
 
