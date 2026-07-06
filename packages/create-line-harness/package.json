@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "prepublishOnly": "node ./scripts/guard-source-publish.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "line",
@@ -25,13 +25,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Shudesu/line-harness.git",
+    "url": "https://github.com/Shudesu/line-harness-oss.git",
     "directory": "packages/create-line-harness"
+  },
+  "homepage": "https://github.com/Shudesu/line-harness-oss#readme",
+  "bugs": {
+    "url": "https://github.com/Shudesu/line-harness-oss/issues"
   },
   "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^0.9.1",
-    "@line-harness/update-engine": "workspace:^0.0.2",
     "execa": "^9.5.2",
     "picocolors": "^1.1.1"
   },

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useAccount } from '@/contexts/account-context'
 import type { AccountWithStats } from '@/contexts/account-context'
 import { countryFlag } from '@/lib/country-flag'
+import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
 
 const appVersion = process.env.APP_VERSION || '0.0.0'
 const appCommitSha = process.env.APP_COMMIT_SHA || 'local'
@@ -70,7 +71,6 @@ const menuSections = [
       { href: '/pools', label: 'プール管理', icon: 'M3 7h18M3 12h18M3 17h18' },
       { href: '/users', label: 'ユーザー一覧', icon: 'M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2' },
       { href: '/health', label: 'BAN検知', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-      { href: '/updates', label: 'アップデート履歴', icon: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' },
       { href: '/emergency', label: '緊急コントロール', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z', danger: true },
     ],
   },
@@ -206,23 +206,33 @@ export default function Sidebar() {
   }, [])
 
   // 未対応件数 polling — メニュー項目にバッジを出す。5 分間隔。
+  // (裏の countUnanswered は messages_log 全走査を含む重い集計なので間隔は詰めない。)
+  // チャット画面での status 変更・手動返信直後は UNANSWERED_REFRESH_EVENT で
+  // 即時再取得する (ポーリング待ちだと操作してもバッジが減らないと感じるため)。
   const [unansweredCount, setUnansweredCount] = useState<number>(0)
   useEffect(() => {
     let cancelled = false
+    // 連続操作で fetch が並走した際、遅い古いレスポンスが新しい値を上書きしない
+    // ように発行順 seq でガードする。
+    let seq = 0
     const fetchCount = async () => {
+      const mySeq = ++seq
       try {
         const { api } = await import('@/lib/api')
         const res = await api.inbox.unanswered.count()
-        if (!cancelled && res.success) setUnansweredCount(res.data.total)
+        if (!cancelled && mySeq === seq && res.success) setUnansweredCount(res.data.total)
       } catch {
         // サイレント失敗
       }
     }
     fetchCount()
     const id = setInterval(fetchCount, 5 * 60_000)
+    const onRefresh = () => { void fetchCount() }
+    window.addEventListener(UNANSWERED_REFRESH_EVENT, onRefresh)
     return () => {
       cancelled = true
       clearInterval(id)
+      window.removeEventListener(UNANSWERED_REFRESH_EVENT, onRefresh)
     }
   }, [])
 
