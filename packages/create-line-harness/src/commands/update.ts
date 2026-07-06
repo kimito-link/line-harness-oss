@@ -466,11 +466,11 @@ export async function runUpdate(repoDir: string): Promise<void> {
   // 3) Fork detection — block automatic update if hashes don't match
   const fork = detectFork(current, manifest);
   if (fork.kind === "fork") {
-    p.log.warn(pc.yellow(`改造を検知: ${fork.reason}`));
+    p.log.info(pc.yellow(`カスタマイズ版を検出しました (${fork.reason})`));
     p.log.info(
-      `自動アップデートは無効化されます。\n手動更新手順は wiki を参照してください:\n  https://theharness.com/wiki/updates/manual`,
+      `カスタマイズされたインストールを上書きしないよう、自動アップデートは適用しません。\nそのままご利用いただけます。更新したい場合は手動アップデートガイドをご覧ください:\n  https://github.com/Shudesu/line-harness-oss/blob/main/docs/wiki/26-Manual-Update.md`,
     );
-    p.outro(pc.yellow("自動アップデートをスキップしました"));
+    p.outro(pc.yellow("自動アップデートをスキップしました (インストールはそのまま動作します)"));
     process.exit(0);
   }
 

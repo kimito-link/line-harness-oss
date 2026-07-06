@@ -569,6 +569,10 @@ ${longPressBlock}
 // - page は `/r/:ref` と同じ allowlist (salon-book / event / event-me)
 // - mobile UA は「LINEで開く」ボタン、desktop は QR を返す (`/r/:ref` 同等)
 app.get('/o', async (c) => {
+  if (isLinkPreviewBot(c.req.header('user-agent') || '')) {
+    return c.html(await buildOgForLiffPath(c.env.DB, new URL(c.req.url)));
+  }
+
   const liffId = c.req.query('liffId') || '';
   if (!/^[0-9]+-[A-Za-z0-9]+$/.test(liffId)) {
     return c.text('Invalid liffId', 400);
@@ -718,10 +722,15 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
       }
     }
 
-    if (!event) {
-      // liffId 指定でアカウント特定したが strict query で event が引けなかった、
-      // または liffId 無しのフォールバック。account の branding を持ち越すと
-      // event とアカウントの組み合わせが不整合になるのでリセットする。
+    if (!event && !liffIdFromQuery) {
+      // liffId 指定が URL に無い場合（旧 /events/:id パス等）のみ、event 単独
+      // lookup と event 所属 account からの branding を許可する。
+      //
+      // liffId 指定があるのに strict query が空ということは「URL の liffId
+      // アカウントに属さない event」なので、ここで event 単独 lookup に落とすと
+      // 他アカの event 詳細・branding が bot プレビューに漏れる。event=null の
+      // まま外側のアカウントデフォルト OG（liffId 由来 account）にフォールバック
+      // させて漏洩を防ぐ。
       account = null;
       event = await db
         .prepare(

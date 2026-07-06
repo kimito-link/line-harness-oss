@@ -31,10 +31,11 @@ export default function MenusPage() {
   const [tags, setTags] = useState<Tag[]>([])
 
   const liffId = selectedAccount?.liffId ?? null
+  const workerBase = process.env.NEXT_PUBLIC_API_URL ?? ''
 
   async function copyMenuUrl(menuId: string) {
-    if (!liffId) return
-    const url = `https://liff.line.me/${liffId}/?page=salon-book&menu_id=${menuId}`
+    if (!workerBase || !liffId) return
+    const url = `${workerBase}/o?liffId=${encodeURIComponent(liffId)}&page=salon-book&menu_id=${encodeURIComponent(menuId)}`
     try {
       await navigator.clipboard.writeText(url)
       setCopiedMenuId(menuId)
@@ -196,7 +197,7 @@ export default function MenusPage() {
                             type="button"
                             onClick={() => copyMenuUrl(m.id)}
                             className="text-blue-600 hover:underline"
-                            title={`https://liff.line.me/${liffId}/?page=salon-book&menu_id=${m.id}`}
+                            title={`${workerBase}/o?liffId=${encodeURIComponent(liffId)}&page=salon-book&menu_id=${encodeURIComponent(m.id)}`}
                           >
                             {copiedMenuId === m.id ? '✓ コピー済' : '専用URL'}
                           </button>
