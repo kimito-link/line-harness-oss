@@ -73,6 +73,8 @@ import { messageTemplates } from './routes/message-templates.js';
 import dedupPreview from './routes/dedup-preview.js';
 import { profileRefresh } from './routes/profile-refresh.js';
 import { richMenuGroups } from './routes/rich-menu-groups.js';
+import adminVersion from './routes/admin-version.js';
+import adminUpdate from './routes/admin-update.js';
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
 import {
@@ -102,6 +104,22 @@ export type Env = {
     X_HARNESS_URL?: string;  // Optional: X Harness API URL for account linking
     IG_HARNESS_URL?: string;  // Optional: IG Harness API URL for cross-platform linking
     IG_HARNESS_LINK_SECRET?: string;  // Shared secret for IG Harness link-line webhook
+    // Phase 5 self-update — consumed by /admin/update/*. Defaults live in
+    // wrangler.toml [vars]; secrets (CF_API_TOKEN, ADMIN_API_KEY) come from
+    // `wrangler secret put`. All are optional at the type level so the rest
+    // of the worker still type-checks in test environments that don't set
+    // them; the /admin/update/* route guards on their presence at runtime.
+    ADMIN_API_KEY?: string;
+    CF_API_TOKEN?: string;
+    CF_ACCOUNT_ID?: string;
+    WORKER_NAME?: string;
+    ADMIN_PAGES_PROJECT?: string;
+    LIFF_PAGES_PROJECT?: string;
+    D1_DATABASE_ID?: string;
+    MANIFEST_URL?: string;
+    WORKER_PUBLIC_URL?: string;
+    ADMIN_PUBLIC_URL?: string;
+    LIFF_PUBLIC_URL?: string;
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
@@ -175,6 +193,16 @@ app.route('/', messageTemplates);
 app.route('/', dedupPreview);
 app.route('/', profileRefresh);
 app.route('/', richMenuGroups);
+
+// Phase 5 (upgrade flow) — public build metadata endpoint. Mounted under
+// /admin/ but intentionally unauthenticated: the dashboard fetches /admin/version
+// before login to render the upgrade banner, and the returned hashes are
+// derivable from the deployed bundle. /admin/update/* (Task 18) layers
+// ADMIN_API_KEY middleware on subpaths.
+app.route('/admin', adminVersion);
+// Phase 5 Task 18 — self-update endpoints guarded by x-admin-api-key.
+// authMiddleware skips non-/api/ paths so this router owns its own auth gate.
+app.route('/admin/update', adminUpdate);
 
 // Self-hosted QR code proxy — prevents leaking ref tokens to third-party services
 app.get('/api/qr', async (c) => {

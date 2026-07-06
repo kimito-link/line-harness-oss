@@ -1,10 +1,19 @@
 import * as p from "@clack/prompts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execa } from "execa";
+import {
+  isGeneratedInstalledWranglerToml,
+  renderInstalledWranglerToml,
+  resolveInstalledWranglerConfig,
+  type SavedInstallConfig,
+} from "../lib/installed-wrangler.js";
+import { repoPnpm } from "../lib/pnpm.js";
 
-const REPO_URL = "https://github.com/Shudesu/line-harness-oss.git";
+const REPO_URL =
+  process.env.LINE_HARNESS_REPO_URL ??
+  "https://github.com/Shudesu/line-harness-oss.git";
 
 /**
  * Clone the LINE Harness repo and install dependencies.
@@ -27,6 +36,37 @@ export async function ensureRepo(repoDir: string | null): Promise<string> {
     ".line-harness",
   );
   if (existsSync(join(homeDir, "pnpm-workspace.yaml"))) {
+    const wranglerTomlPath = join(homeDir, "apps/worker/wrangler.toml");
+    const configPath = join(homeDir, ".line-harness-config.json");
+    let installedToml: string | null = null;
+
+    if (existsSync(configPath)) {
+      try {
+        const config = JSON.parse(
+          readFileSync(configPath, "utf-8"),
+        ) as SavedInstallConfig;
+        const resolved = resolveInstalledWranglerConfig(config);
+        if (resolved) {
+          installedToml = renderInstalledWranglerToml(resolved);
+        }
+      } catch {
+        // Ignore unreadable config and continue with a normal pull.
+      }
+    }
+
+    if (existsSync(wranglerTomlPath)) {
+      try {
+        const currentToml = readFileSync(wranglerTomlPath, "utf-8");
+        if (isGeneratedInstalledWranglerToml(currentToml)) {
+          await execa("git", ["checkout", "--", "apps/worker/wrangler.toml"], {
+            cwd: homeDir,
+          });
+        }
+      } catch {
+        // Best effort — if the file stays dirty, the pull below may fail.
+      }
+    }
+
     // Pull latest
     const s = p.spinner();
     s.start("最新バージョンを取得中...");
@@ -36,6 +76,14 @@ export async function ensureRepo(repoDir: string | null): Promise<string> {
       // Non-critical, continue with existing
     }
     s.stop("リポジトリ更新完了");
+
+    if (installedToml) {
+      try {
+        writeFileSync(wranglerTomlPath, installedToml);
+      } catch {
+        // Non-critical — the next setup run will regenerate it again.
+      }
+    }
     return homeDir;
   }
 
@@ -56,12 +104,12 @@ export async function ensureRepo(repoDir: string | null): Promise<string> {
   // Install dependencies
   s.start("依存関係インストール中...");
   try {
-    await execa("npx", ["pnpm", "install", "--frozen-lockfile"], {
+    await repoPnpm(homeDir, ["install", "--frozen-lockfile"], {
       cwd: homeDir,
     });
   } catch {
     // Try without frozen lockfile
-    await execa("npx", ["pnpm", "install"], { cwd: homeDir });
+    await repoPnpm(homeDir, ["install"], { cwd: homeDir });
   }
   s.stop("依存関係インストール完了");
 

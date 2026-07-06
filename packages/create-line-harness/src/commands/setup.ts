@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -8,7 +8,7 @@ import { checkDeps } from "../steps/check-deps.js";
 import { ensureAuth, getAccountId } from "../steps/auth.js";
 import { promptLineCredentials } from "../steps/prompt.js";
 import { createDatabase } from "../steps/database.js";
-import { deployWorker } from "../steps/deploy-worker.js";
+import { deployWorker, syncInstalledWorkerConfig } from "../steps/deploy-worker.js";
 import { deployAdmin } from "../steps/deploy-admin.js";
 import { setSecrets } from "../steps/secrets.js";
 import { configureAdminAuth } from "../steps/admin-auth.js";
@@ -57,6 +57,7 @@ const ACCOUNT_DEPENDENT_STEPS = [
   "secrets",
   "lineAccount",
   "admin",
+  "workerConfig",
   "adminAuth",
 ];
 
@@ -80,6 +81,16 @@ function saveState(repoDir: string, state: SetupState): void {
   writeFileSync(getStatePath(repoDir), JSON.stringify(state, null, 2) + "\n");
 }
 
+function removeStateFile(repoDir: string): void {
+  const path = getStatePath(repoDir);
+  if (!existsSync(path)) return;
+  try {
+    unlinkSync(path);
+  } catch {
+    // Best effort — a stale state file only affects resume behavior.
+  }
+}
+
 function isDone(state: SetupState, step: string): boolean {
   return state.completedSteps.includes(step);
 }
@@ -93,9 +104,9 @@ function isDone(state: SetupState, step: string): boolean {
  *
  * We patch the file in-place (so `wrangler` resolves `main = "src/index.ts"`
  * and `assets.directory` correctly relative to apps/worker/) and capture the
- * pristine content into the setup state so it can be restored at the end of
- * the run — leaving the tracked file dirty would break a future
- * `git pull --ff-only` on `~/.line-harness`.
+ * pristine content into the setup state so it can be restored on failure /
+ * cancellation. Successful installs now replace the file with a generated
+ * user-specific config so follow-up `wrangler tail` and manual debugging work.
  *
  * Replaces EVERY account_id / database_id literal — covers both placeholders
  * and real IDs left over from a prior install or a different Cloudflare
@@ -304,16 +315,21 @@ export async function runSetup(repoDir: string): Promise<void> {
   // Critically: also clear originalWranglerToml in state so a future rerun
   // (after `git pull` may have updated apps/worker/wrangler.toml) does NOT
   // restore yesterday's snapshot over today's freshly-pulled file.
-  const cleanup = (): void => {
+  const cleanupFailure = (): void => {
     restoreWranglerToml(state, repoDir);
     state.originalWranglerToml = undefined;
     saveState(repoDir, state);
   };
 
+  const cleanupSuccess = (): void => {
+    state.originalWranglerToml = undefined;
+    removeStateFile(repoDir);
+  };
+
   // Best-effort restore on SIGINT (Ctrl-C). Without this the user's repo
   // is left dirty and `ensureRepo()` next time can't ff-only.
   const onSignal = (sig: NodeJS.Signals) => {
-    cleanup();
+    cleanupFailure();
     process.exit(sig === "SIGINT" ? 130 : 143);
   };
   process.once("SIGINT", onSignal);
@@ -321,9 +337,9 @@ export async function runSetup(repoDir: string): Promise<void> {
 
   try {
     await runSetupInner(state, repoDir);
-    cleanup();
+    cleanupSuccess();
   } catch (error) {
-    cleanup();
+    cleanupFailure();
     if (error instanceof WranglerError) {
       const help = error.getHelp();
       if (help) {
@@ -706,6 +722,28 @@ ON CONFLICT(channel_id) DO UPDATE SET
     p.log.success("管理画面の認証設定: 設定済み");
   }
 
+  if (!isDone(state, "workerConfig")) {
+    await syncInstalledWorkerConfig({
+      repoDir,
+      workerName: state.workerName!,
+      accountId: state.accountId!,
+      d1DatabaseName: state.d1DatabaseName!,
+      d1DatabaseId: state.d1DatabaseId!,
+      r2BucketName: state.r2BucketName!,
+      workerPublicUrl: state.workerUrl!,
+      adminPagesProject: adminProjectName,
+      adminPublicUrl: state.adminUrl!,
+      liffPagesProject: `${state.workerName}-liff`,
+      liffPublicUrl: state.workerUrl!,
+      manifestUrl:
+        "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json",
+    });
+    markDone(state, "workerConfig");
+    saveState(repoDir, state);
+  } else {
+    p.log.success("Worker 設定: 反映済み");
+  }
+
   // Step 14: Generate MCP config
   const addMcp = await p.confirm({
     message: "MCP 設定を .mcp.json に追加しますか？（Claude Code / Cursor 用）",
@@ -760,32 +798,37 @@ ON CONFLICT(channel_id) DO UPDATE SET
     "セットアップ完了！",
   );
 
-  // Save config for future updates (separate from setup state)
+  // Save config for future updates (separate from setup state).
+  // Writes BOTH legacy field names (for older update.ts versions) and the
+  // new Task 22 names (so future `npx create-line-harness update` runs
+  // don't have to prompt for missing fields). We intentionally omit
+  // liffProject because current setup serves LIFF from the Worker via
+  // [assets], not a separate Pages project.
   const configPath = join(repoDir, ".line-harness-config.json");
-  writeFileSync(
-    configPath,
-    JSON.stringify(
-      {
-        projectName: state.projectName,
-        workerName: state.workerName,
-        workerUrl: state.workerUrl,
-        adminUrl: state.adminUrl,
-        d1DatabaseName: state.d1DatabaseName,
-        d1DatabaseId: state.d1DatabaseId,
-        r2BucketName: state.r2BucketName,
-        accountId: state.accountId,
-      },
-      null,
-      2,
-    ) + "\n",
-  );
-
-  // Clean up state file on success
-  const statePath = getStatePath(repoDir);
-  if (existsSync(statePath)) {
-    const { unlinkSync } = await import("node:fs");
-    unlinkSync(statePath);
-  }
+  const adminPublicUrl = state.adminUrl;
+  const workerPublicUrl = state.workerUrl;
+  const fullConfig: Record<string, unknown> = {
+    // Legacy fields (kept for backwards compatibility with older update.ts)
+    projectName: state.projectName,
+    accountId: state.accountId,
+    adminUrl: state.adminUrl,
+    workerUrl: state.workerUrl,
+    workerName: state.workerName,
+    d1DatabaseName: state.d1DatabaseName,
+    d1DatabaseId: state.d1DatabaseId,
+    r2BucketName: state.r2BucketName,
+    // New fields (required by Task 22 update.ts)
+    cfAccountId: state.accountId,
+    workerPublicUrl,
+    adminProject: adminProjectName,
+    adminPublicUrl,
+    liffPublicUrl: state.workerUrl,
+    // liffProject is intentionally omitted — current setup serves LIFF
+    // from the Worker via [assets], not a separate Pages project.
+    manifestUrl:
+      "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json",
+  };
+  writeFileSync(configPath, JSON.stringify(fullConfig, null, 2) + "\n");
 
   p.outro(pc.green("LINE Harness を使い始めましょう 🎉"));
 }
