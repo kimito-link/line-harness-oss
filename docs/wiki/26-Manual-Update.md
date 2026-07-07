@@ -6,7 +6,6 @@ LINE Harness を手動で最新版に更新する手順です。
 
 - コードをカスタマイズしている（フォーク運用）
 - 自前の CI/CD（GitHub Actions 等）でデプロイしている
-- ビルドにバージョン情報が埋め込まれていない（`v0.0.0-dev` 表示）
 
 > カスタマイズ版であること自体は問題ではありません。自動更新が「勝手にあなたの変更を上書きしない」ための安全装置として無効になるだけです。
 
@@ -16,7 +15,16 @@ LINE Harness を手動で最新版に更新する手順です。
 npx create-line-harness@latest update
 ```
 
-vanilla ビルドであれば、バックアップ（ロールバック用スナップショット）付きで自動更新されます。
+vanilla ビルドであれば自動更新されます。
+
+### バージョンが `v0.0.0-dev` と表示される場合（旧 CLI インストール）
+
+旧バージョンの CLI でセットアップした環境は、公式リリースと同一でもバージョン情報が埋め込まれておらず `v0.0.0-dev` と表示されます。この場合も上記コマンドを実行してください — **公式リリースへの引き上げ（導入）を提案するプロンプト**が表示されます。
+
+- 承認すると、最新の公式リリースを導入し、以後は通常の自動アップデートが使えるようになります
+- DB のデータ・管理画面上の設定・シークレットはそのまま残ります
+- **Worker / 管理画面のソースコードをカスタマイズしている場合は上書きされる**ため、承認せず方法 3 で更新してください
+- マイグレーションは全件を再確認します。適用済みのものは「スキップ」と表示されます（正常です）
 
 ## 方法 2: git クローンして運用している場合
 
@@ -27,14 +35,26 @@ git pull origin main
 # 2. 依存を更新
 pnpm install
 
-# 3. DB マイグレーションを適用（未適用分のみ）
+# 3. DB マイグレーションを適用
+#    packages/db/migrations/ の SQL を番号順に 1 ファイルずつ適用します。
+#    適用済みのファイルは "already exists" / "duplicate column" エラーに
+#    なりますが、これは「適用済み」の意味なので無視して次に進んで構いません。
 cd apps/worker
-npx wrangler d1 migrations apply <your-database> --remote
+for f in ../../packages/db/migrations/*.sql; do
+  npx wrangler d1 execute <your-database> --remote --file "$f" || true
+done
 
 # 4. デプロイ
 npx wrangler deploy                      # Worker
 pnpm --filter web build                  # 管理画面（Pages にデプロイ）
 ```
+
+> **注意:** 以前このガイドに記載していた `wrangler d1 migrations apply` は、
+> `create-line-harness` でセットアップした環境では機能しません（wrangler の
+> マイグレーション管理テーブルを使わずにセットアップされるため、全マイグレー
+> ションが「未適用」扱いになります）。上記の `d1 execute --file` 方式を使って
+> ください。LINE Harness のマイグレーションは追加専用（additive-only）+
+> `INSERT OR IGNORE` 方針のため、適用済みファイルの再実行は安全です。
 
 自前の CI/CD がある場合は main を pull / merge して push すれば通常のデプロイフローで反映されます。
 

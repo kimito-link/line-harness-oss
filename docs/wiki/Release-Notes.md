@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.17.0 (2026-07-08)
+
+### Added — Link-tracking controls
+
+- **Per-account LIFF resolution for /t links** — new `tracked_links.line_account_id` (migration 046). The identify-redirect for /t links opened inside the LINE app now uses the LIFF of the account that owns the link (previously the global `LIFF_URL`, which could show another account's consent screen). Fallback order: `line_account_id` → the linked scenario's account → `env.LIFF_URL`. OGP resolution follows the same order.
+- **Per-broadcast link shortening toggle** — `broadcasts.track_links` (default ON). A checkbox on the broadcast form and draft/schedule detail lets you turn click tracking off per message; when off, URLs are sent as-is (no /t/ conversion, no text→flex rewrite).
+- **API / MCP support** — `trackLinks` on `POST/PUT /api/broadcasts` and `POST /api/friends/:id/messages`; MCP `broadcast` / `send_message` gain `trackLinks`, `create_tracked_link` / `manage_tracked_links` gain `accountId`.
+- Auto-tracked links now record the sending account; friends API returns `lineAccountId`.
+
+### Added — Installer / self-update overhaul
+
+`npx create-line-harness` installs are now version-stamped official releases, and automatic updates actually work. This is the first release built with the new pipeline.
+
+- **Setup deploys from the official release bundle** — the Worker ships the release artifact byte-for-byte (so `/admin/version` reports the real version and fork detection recognizes the install as vanilla), and the admin UI is unpacked from the bundle instead of a local Next.js build (much faster setup). The clone is pinned to the release tag so schema/migrations always match the deployed code. A `--from-source` flag keeps the old behaviour for development.
+- **Adoption path for older CLI installs (`v0.0.0-dev`)** — running `npx create-line-harness@latest update` now offers, with an explicit confirmation prompt, to move the install onto the latest official release. Database contents, settings, and secrets are preserved.
+- **Update-flow fixes** — the admin bundle's `__LH_WORKER_URL__` placeholder is now materialized before deploy (previously an update would break the dashboard), `nodejs_compat` is preserved on Worker uploads, Workers Assets survive script updates, LIFF-Pages-less installs are supported, and already-applied migrations are skipped instead of aborting the update. The dashboard's self-update flow receives the same fixes.
+- **Deployable release bundles** — previous bundles shipped a worker stub without its actual code, and the manifest hash could never match the bundled bytes. The release pipeline now builds the worker with wrangler (the same path every real deployment uses) and publishes a detached `worker_bundle_hash` for download verification. Bundles from older releases are explicitly rejected.
+- **Docs** — the manual update guide (26-Manual-Update) now covers CLI installs; `wrangler d1 migrations apply` (which does not work for CLI installs) was replaced with a per-file `d1 execute --file` procedure.
+
 ## v0.16.0 (2026-07-07)
 
 ### Added — Affiliate tracking (ASP)
