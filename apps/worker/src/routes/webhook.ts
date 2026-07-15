@@ -180,7 +180,7 @@ webhook.post('/webhook', async (c) => {
           c.env.GROQ_API_KEY,
         );
       } catch (err) {
-        console.error('Error handling webhook event:', err);
+        console.error('Error handling webhook event:', err instanceof Error ? err.stack : String(err));
       }
     }
   })();
@@ -714,7 +714,15 @@ async function handleEvent(
 
           if (groqResult.kind === 'canned' || groqResult.kind === 'reply') {
             const replyText = groqResult.text;
-            await lineClient.replyMessage(event.replyToken, [{ type: 'text', text: replyText }]);
+            const replyMessages: Array<{ type: 'text'; text: string } | { type: 'image'; originalContentUrl: string; previewImageUrl: string }> = [
+              { type: 'text', text: replyText },
+            ];
+            const imageKey = groqResult.kind === 'canned' ? groqResult.imageUrl : undefined;
+            if (imageKey && workerUrl) {
+              const imageUrl = `${workerUrl}/images/${imageKey}`;
+              replyMessages.push({ type: 'image', originalContentUrl: imageUrl, previewImageUrl: imageUrl });
+            }
+            await lineClient.replyMessage(event.replyToken, replyMessages);
             replyTokenConsumed = true;
             await logOutgoingGroq(replyText, groqResult.kind === 'canned' ? 'groq_canned' : 'groq_reply');
             llmHandled = true;
@@ -733,7 +741,7 @@ async function handleEvent(
             await logOutgoingGroq(groqResult.escalationText, 'groq_reply');
           }
         } catch (err) {
-          console.error('Groq support pipeline failed', err);
+          console.error('Groq support pipeline failed', err instanceof Error ? err.stack : String(err));
         }
       } else if (anthropicApiKey) {
         try {

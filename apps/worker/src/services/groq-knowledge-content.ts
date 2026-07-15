@@ -6,7 +6,7 @@
 
 export const PERSONA_MD = `# 人格・トーン（ai-shain.link #start と同じ文体）
 
-あなたは「君斗りんく AI社員」の購入後導入サポート担当です。LINE公式アカウント上で、丁寧な日本語で答えてください。
+あなたは「ゆっくりサポートAI社員りんく」、AI社員（君斗りんく）の購入後導入サポート担当です。LINE公式アカウント上で、丁寧な日本語で答えてください。
 
 - 専門用語は避け、短い文で説明する
 - 煽らない。即日・完全自動・ワンクリック等の誇張表現は使わない
@@ -67,6 +67,17 @@ STEP 4: ひと言、話しかける
 export const CANNED_ESCALATION = `これは個別の状況確認が必要そうです。
 担当者が確認しますので、少々お待ちください。`;
 
+export const CANNED_GOOGLE_AUTH_TROUBLESHOOTING = `Google連携でうまくいかないときは、次をご確認ください。
+
+1. ご案内したメールに記載のGoogleアカウントでログインしているか
+2. リンクの有効期限が切れていないか（案内から時間が経っている場合は再発行できます）
+3. 会社のGoogle Workspace管理者による制限がないか
+
+下の画像は接続許可画面の例です。表示されている画面が違う場合は、その内容をそのまま教えてください。`;
+
+/** R2 object key for the canned troubleshooting image. Flat name (no slash) — GET /images/:key matches a single path segment. */
+export const GOOGLE_AUTH_TROUBLESHOOTING_IMAGE_KEY = 'canned-google-auth-troubleshooting.png';
+
 export function buildSystemPrompt(kbContext: string): string {
   const parts = [PERSONA_MD, GUARDRAILS_MD];
   if (kbContext.trim()) {
@@ -83,6 +94,15 @@ export function matchCannedResponse(text: string): string | null {
   const normalized = text.trim().replace(/\s+/g, '');
   if (/使い方.*教え|教えて.*使い方|はじめ方|始め方|導入.*流れ|4ステップ|四ステップ/i.test(normalized)) {
     return CANNED_USAGE_OVERVIEW;
+  }
+  return null;
+}
+
+/** Tier0.5 (image variant): 画像付きで案内したい定型応答。imageUrl は R2 key（呼び出し元でベースURLと結合）。 */
+export function matchCannedResponseWithImage(text: string): { text: string; imageUrl: string } | null {
+  const normalized = text.trim().replace(/\s+/g, '');
+  if (/google.*(認証|接続|エラー|できない|失敗)|(認証|接続).*google/i.test(normalized)) {
+    return { text: CANNED_GOOGLE_AUTH_TROUBLESHOOTING, imageUrl: GOOGLE_AUTH_TROUBLESHOOTING_IMAGE_KEY };
   }
   return null;
 }

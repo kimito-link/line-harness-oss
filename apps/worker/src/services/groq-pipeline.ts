@@ -18,7 +18,7 @@ import { getKnowledgePack } from './knowledge-packs.js';
 
 export type GroqPipelineResult =
   | { kind: 'disabled' }
-  | { kind: 'canned'; text: string; source: 'canned' | 'cache' }
+  | { kind: 'canned'; text: string; source: 'canned' | 'cache'; imageUrl?: string }
   | { kind: 'reply'; text: string; cacheable: boolean }
   | { kind: 'escalate'; text?: string }
   | { kind: 'fail_closed'; escalationText: string };
@@ -54,6 +54,14 @@ export async function runGroqSupportPipeline(
   if (cached) {
     await incrementGroqUsage(db, lineAccountId, 'cache_hits');
     return { kind: 'canned', text: cached, source: 'cache' };
+  }
+
+  const cannedWithImage = pack.matchCannedResponseWithImage?.(incomingText);
+  if (cannedWithImage) {
+    if (isCacheableQuestion(incomingText)) {
+      await saveCachedAnswer(db, incomingText, cannedWithImage.text, lineAccountId, project);
+    }
+    return { kind: 'canned', text: cannedWithImage.text, source: 'canned', imageUrl: cannedWithImage.imageUrl };
   }
 
   const canned = pack.matchCannedResponse(incomingText);

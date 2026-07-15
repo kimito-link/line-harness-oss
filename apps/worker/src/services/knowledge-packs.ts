@@ -7,6 +7,7 @@ export interface BundledKnowledgePack {
   project: string;
   buildSystemPrompt(kbContext: string): string;
   matchCannedResponse(text: string): string | null;
+  matchCannedResponseWithImage?(text: string): { text: string; imageUrl: string } | null;
   getFailClosedEscalationText(): string;
 }
 
@@ -15,6 +16,7 @@ const PACKS: Record<string, BundledKnowledgePack> = {
     project: 'ai-shain-link',
     buildSystemPrompt: aiShain.buildSystemPrompt,
     matchCannedResponse: aiShain.matchCannedResponse,
+    matchCannedResponseWithImage: aiShain.matchCannedResponseWithImage,
     getFailClosedEscalationText: aiShain.getFailClosedEscalationText,
   },
   'soushin-suggest': {
