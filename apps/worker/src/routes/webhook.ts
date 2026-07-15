@@ -26,6 +26,12 @@ import { buildMessage, expandVariables } from '../services/step-delivery.js';
 import { generateLlmReply, switchToHumanMode } from '../services/llm-reply.js';
 import { runGroqSupportPipeline } from '../services/groq-pipeline.js';
 import { resolveBotProject } from '../services/bot-project.js';
+import {
+  isTaskMessage,
+  isAuthorizedTaskSender,
+  extractTaskBody,
+  createAiShainTask,
+} from '../services/ai-shain-worker-task.js';
 import type { Env } from '../index.js';
 
 const webhook = new Hono<Env>();
@@ -178,6 +184,7 @@ webhook.post('/webhook', async (c) => {
           c.env.IMAGES,
           c.env.ANTHROPIC_API_KEY,
           c.env.GROQ_API_KEY,
+          c.env.GITHUB_TOKEN,
         );
       } catch (err) {
         console.error('Error handling webhook event:', err instanceof Error ? err.stack : String(err));
@@ -201,6 +208,7 @@ async function handleEvent(
   r2?: R2Bucket,
   anthropicApiKey?: string,
   groqApiKey?: string,
+  githubToken?: string,
 ): Promise<void> {
   if (event.type === 'follow') {
     const userId =
@@ -700,7 +708,25 @@ async function handleEvent(
           .run();
       };
 
-      if (groqApiKey) {
+      // "個人AI社員" タスクキュー入口: "タスク:" で始まるメッセージは、
+      // 許可された送信者（開発者本人）からのものだけ GitHub Issue 化する。
+      // 未許可の送信者からの同一文言は素通りさせ、下の通常GROQフローに委ねる
+      // （＝顧客が偶然「タスク:」と打っても何も特別なことは起きない）。
+      if (isTaskMessage(incomingText) && isAuthorizedTaskSender(userId)) {
+        try {
+          const taskBody = extractTaskBody(incomingText);
+          const result = await createAiShainTask(githubToken, taskBody, friend.display_name);
+          const replyText = result.created
+            ? `タスクを登録しました。\n${result.issueUrl}`
+            : `タスク登録に失敗しました: ${result.error ?? '不明なエラー'}`;
+          await lineClient.replyMessage(event.replyToken, [{ type: 'text', text: replyText }]);
+          replyTokenConsumed = true;
+          await logOutgoingGroq(replyText, 'groq_reply');
+          llmHandled = true;
+        } catch (err) {
+          console.error('ai-shain-worker task creation failed', err instanceof Error ? err.stack : String(err));
+        }
+      } else if (groqApiKey) {
         try {
           const project = await resolveBotProject(db, friend);
           const groqResult = await runGroqSupportPipeline({

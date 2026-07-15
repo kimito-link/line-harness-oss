@@ -120,6 +120,12 @@ export type Env = {
     // When set, takes priority over ANTHROPIC_API_KEY; fail-closed does NOT
     // fall back to Claude (cost guard).
     GROQ_API_KEY?: string;
+    // Fine-grained PAT scoped to kimito-link/ai-shain-worker (Issues: read/write
+    // only). Used by webhook.ts to create a GitHub Issue when an incoming LINE
+    // message starts with the "タスク:" prefix — this is the "personal AI
+    // employee" task-queue entry point (see ai-shain.link/docs/
+    // ARCHITECTURE-personal-ai-employee-first.md).
+    GITHUB_TOKEN?: string;
     // Phase 5 self-update — consumed by /admin/update/*. Defaults live in
     // wrangler.toml [vars]; secrets (CF_API_TOKEN, ADMIN_API_KEY) come from
     // `wrangler secret put`. All are optional at the type level so the rest
