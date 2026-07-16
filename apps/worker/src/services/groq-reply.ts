@@ -1,6 +1,3 @@
-import { getBotConfig } from './groq-config.js';
-
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 export const ESCALATION_MARKER = '[ESCALATE]';
 
 export type GroqReplyKind = 'reply' | 'escalate' | 'fail_closed';
@@ -10,85 +7,11 @@ export interface GroqReplyResult {
   text?: string;
 }
 
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-export interface GroqGenerateParams {
-  apiKey: string;
-  systemPrompt: string;
-  messages: ChatMessage[];
-  incomingText: string;
-}
-
-/**
- * Call Groq chat completions API with timeout and fail-closed error handling.
- * Never throws — returns fail_closed on network/API/timeout errors.
- */
-export async function generateGroqReply(params: GroqGenerateParams): Promise<GroqReplyResult> {
-  const { apiKey, systemPrompt, messages, incomingText } = params;
-  const { model, maxOutputTokens, timeoutMs } = getBotConfig().llm;
-
-  const chatMessages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-    ...(messages.length > 0 ? messages : [{ role: 'user' as const, content: incomingText }]),
-  ];
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  let response: Response;
-  try {
-    response = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxOutputTokens,
-        temperature: 0.3,
-        messages: chatMessages,
-      }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    console.error('[groq-reply] fetch failed', err);
-    return { kind: 'fail_closed' };
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (response.status === 429) {
-    console.warn('[groq-reply] rate limited (429)');
-    return { kind: 'fail_closed' };
-  }
-
-  if (!response.ok) {
-    console.error('[groq-reply] API error', response.status, await response.text().catch(() => ''));
-    return { kind: 'fail_closed' };
-  }
-
-  let data: { choices?: Array<{ message?: { content?: string } }> };
-  try {
-    data = await response.json();
-  } catch {
-    return { kind: 'fail_closed' };
-  }
-
-  const rawText = (data.choices?.[0]?.message?.content ?? '').trim();
-  if (!rawText) return { kind: 'fail_closed' };
-
-  if (rawText.includes(ESCALATION_MARKER)) {
-    const cleaned = rawText.replace(ESCALATION_MARKER, '').trim();
-    return { kind: 'escalate', text: cleaned || undefined };
-  }
-
-  return { kind: 'reply', text: rawText };
-}
+// Groq単体へのHTTP呼び出し本体は llm-providers.ts の callGroq() に統合済み
+// （2026-07-17 Fable設計「無応答ゼロ化アーキテクチャ」。旧 generateGroqReply は
+// llm-chain.ts の generateLlmReplyWithFallback がGroq/Gemini/Workers AIの
+// チェーンとして置き換えた）。このファイルには ESCALATION_MARKER 定数と
+// account_settings 由来の設定関数のみ残す。
 
 export interface GroqReplyConfig {
   enabled: boolean;

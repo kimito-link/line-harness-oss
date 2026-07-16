@@ -10,10 +10,10 @@ import {
   isGroqBudgetExceeded,
 } from './kb-search.js';
 import {
-  generateGroqReply,
   getGroqReplyConfig,
   buildGroqHistory,
 } from './groq-reply.js';
+import { generateLlmReplyWithFallback } from './llm-chain.js';
 import { getKnowledgePack } from './knowledge-packs.js';
 
 export type GroqPipelineResult =
@@ -25,7 +25,14 @@ export type GroqPipelineResult =
 
 export interface GroqPipelineParams {
   db: D1Database;
-  apiKey: string;
+  /** 1番手(Groq)のAPIキー。省略時はGroq段をスキップし、チェーンの後段のみ試す。 */
+  apiKey?: string;
+  /** 2番手(Gemini)のAPIキー。省略時はGemini段をスキップする。 */
+  geminiApiKey?: string;
+  /** 3番手(Cloudflare Workers AI)のバインディング。省略時はWorkers AI段をスキップする。 */
+  workersAi?: Ai;
+  /** webhook受信時刻(ms epoch)。チェーンの残り時間駆動スキップに使う。 */
+  receivedAt: number;
   lineAccountId: string | null;
   friendId: string;
   incomingText: string;
@@ -39,7 +46,7 @@ export interface GroqPipelineParams {
 export async function runGroqSupportPipeline(
   params: GroqPipelineParams,
 ): Promise<GroqPipelineResult> {
-  const { db, apiKey, lineAccountId, friendId, incomingText, project } = params;
+  const { db, apiKey, geminiApiKey, workersAi, receivedAt, lineAccountId, friendId, incomingText, project } = params;
   const pack = getKnowledgePack(project);
 
   const config = await getGroqReplyConfig(db, lineAccountId);
@@ -79,11 +86,14 @@ export async function runGroqSupportPipeline(
 
   await incrementGroqUsage(db, lineAccountId, 'groq_calls');
 
-  const groqResult = await generateGroqReply({
-    apiKey,
+  const groqResult = await generateLlmReplyWithFallback({
     systemPrompt,
     messages: history,
     incomingText,
+    receivedAt,
+    groqApiKey: apiKey,
+    geminiApiKey,
+    workersAi,
   });
 
   if (groqResult.kind === 'fail_closed') {

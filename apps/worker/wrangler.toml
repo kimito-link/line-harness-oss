@@ -28,6 +28,11 @@ database_id = "YOUR_DEV_D1_DATABASE_ID"
 binding = "IMAGES"
 bucket_name = "line-harness-images"
 
+# 無応答ゼロ化チェーンの3番手（2026-07-17追加）。Worker内バインディングなので
+# 外部ネットワークegressが無く、Groq/Geminiの障害から独立している。
+[ai]
+binding = "AI"
+
 [triggers]
 crons = ["*/5 * * * *", "0 */6 * * *"]
 
@@ -79,6 +84,9 @@ database_id = "YOUR_D1_DATABASE_ID"
 [[env.production.r2_buckets]]
 binding = "IMAGES"
 bucket_name = "line-harness-images"
+
+[env.production.ai]
+binding = "AI"
 
 [env.production.triggers]
 crons = ["*/5 * * * *", "0 */6 * * *"]

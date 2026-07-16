@@ -13,7 +13,20 @@
         "apiKeySecretName": { "type": "string" },
         "maxOutputTokens": { "type": "integer", "minimum": 64, "maximum": 4096 },
         "timeoutMs": { "type": "integer", "minimum": 1000 },
-        "dailyCallBudget": { "type": "integer", "minimum": 1 }
+        "dailyCallBudget": { "type": "integer", "minimum": 1 },
+        "chain": {
+          "type": "array",
+          "description": "無応答ゼロ化チェーン（2026-07-17追加）。省略可: 未指定ならprovider/model/timeoutMsから1段チェーンを合成する。",
+          "items": {
+            "type": "object",
+            "required": ["provider", "model", "timeoutMs"],
+            "properties": {
+              "provider": { "enum": ["groq", "gemini", "workers-ai"] },
+              "model": { "type": "string" },
+              "timeoutMs": { "type": "integer", "minimum": 1000 }
+            }
+          }
+        }
       }
     },
     "line": {

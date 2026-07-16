@@ -6,8 +6,13 @@
     "model": "llama-3.3-70b-versatile",
     "apiKeySecretName": "GROQ_API_KEY",
     "maxOutputTokens": 500,
-    "timeoutMs": 10000,
-    "dailyCallBudget": 800
+    "timeoutMs": 8000,
+    "dailyCallBudget": 800,
+    "chain": [
+      { "provider": "groq", "model": "llama-3.3-70b-versatile", "timeoutMs": 8000 },
+      { "provider": "gemini", "model": "gemini-2.5-flash-lite", "timeoutMs": 10000 },
+      { "provider": "workers-ai", "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "timeoutMs": 8000 }
+    ]
   },
   "line": {
     "channelSecretName": "LINE_CHANNEL_SECRET",

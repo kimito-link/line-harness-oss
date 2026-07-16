@@ -167,6 +167,8 @@ webhook.post('/webhook', async (c) => {
     return c.json({ status: 'ok' }, 200);
   }
 
+  // replyTokenの60秒失効に対する残り時間駆動（llm-chain.ts）の起点。
+  const receivedAt = Date.now();
   const lineClient = new LineClient(channelAccessToken);
 
   // 非同期処理 — LINE は ~1s 以内のレスポンスを要求
@@ -185,6 +187,9 @@ webhook.post('/webhook', async (c) => {
           c.env.ANTHROPIC_API_KEY,
           c.env.GROQ_API_KEY,
           c.env.GITHUB_TOKEN,
+          receivedAt,
+          c.env.GEMINI_API_KEY,
+          c.env.AI,
         );
       } catch (err) {
         console.error('Error handling webhook event:', err instanceof Error ? err.stack : String(err));
@@ -209,6 +214,9 @@ async function handleEvent(
   anthropicApiKey?: string,
   groqApiKey?: string,
   githubToken?: string,
+  receivedAt: number = Date.now(),
+  geminiApiKey?: string,
+  workersAi?: Ai,
 ): Promise<void> {
   if (event.type === 'follow') {
     const userId =
@@ -708,6 +716,25 @@ async function handleEvent(
           .run();
       };
 
+      // replyToken失効（発行から約60秒）対策の送信保険。45秒以内かつ未消費なら
+      // replyMessageを試み、失敗（トークン失効・二重消費等）した場合はpushMessageに
+      // 切り替える。pushMessageはreplyTokenを必要とせずいつでも届くため、これが
+      // 効くケースは従来なら「例外を握りつぶして完全に無言化」していたはずの経路
+      // （2026-07-17 Fable設計「無応答ゼロ化アーキテクチャ」）。
+      const safeSendText = async (text: string): Promise<void> => {
+        const withinDeadline = !replyTokenConsumed && Date.now() - receivedAt < 45_000;
+        if (withinDeadline) {
+          try {
+            await lineClient.replyMessage(event.replyToken, [{ type: 'text', text }]);
+            replyTokenConsumed = true;
+            return;
+          } catch (err) {
+            console.warn('[safe-send] replyMessage failed, falling back to pushMessage', err instanceof Error ? err.message : String(err));
+          }
+        }
+        await lineClient.pushMessage(friend.line_user_id, [{ type: 'text', text }]);
+      };
+
       // "個人AI社員" タスクキュー入口: "タスク:" で始まるメッセージは、
       // 許可された送信者（開発者本人）からのものだけ GitHub Issue 化する。
       // 未許可の送信者からの同一文言は素通りさせ、下の通常GROQフローに委ねる
@@ -742,6 +769,9 @@ async function handleEvent(
           const groqResult = await runGroqSupportPipeline({
             db,
             apiKey: groqApiKey,
+            geminiApiKey,
+            workersAi,
+            receivedAt,
             lineAccountId,
             friendId: friend.id,
             incomingText,
@@ -750,16 +780,19 @@ async function handleEvent(
 
           if (groqResult.kind === 'canned' || groqResult.kind === 'reply') {
             const replyText = groqResult.text;
-            const replyMessages: Array<{ type: 'text'; text: string } | { type: 'image'; originalContentUrl: string; previewImageUrl: string }> = [
-              { type: 'text', text: replyText },
-            ];
             const imageKey = groqResult.kind === 'canned' ? groqResult.imageUrl : undefined;
             if (imageKey && workerUrl) {
+              // 画像付き返信はsafeSendTextの対象外（テキスト専用ヘルパーのため）。
+              // 失敗時は従来通り例外を投げさせ、下のcatchの詫び文言フォールバックに委ねる。
               const imageUrl = `${workerUrl}/images/${imageKey}`;
-              replyMessages.push({ type: 'image', originalContentUrl: imageUrl, previewImageUrl: imageUrl });
+              await lineClient.replyMessage(event.replyToken, [
+                { type: 'text', text: replyText },
+                { type: 'image', originalContentUrl: imageUrl, previewImageUrl: imageUrl },
+              ]);
+              replyTokenConsumed = true;
+            } else {
+              await safeSendText(replyText);
             }
-            await lineClient.replyMessage(event.replyToken, replyMessages);
-            replyTokenConsumed = true;
             await logOutgoingGroq(replyText, groqResult.kind === 'canned' ? 'groq_canned' : 'groq_reply');
             llmHandled = true;
           } else if (groqResult.kind === 'escalate') {
@@ -768,16 +801,13 @@ async function handleEvent(
             // 空でも、ユーザーには必ず「担当者につなぐ」ことが分かる一言を返す。
             // これが無いと human モードへの切替えだけが起きて「既読無視」に見える
             // （2026-07-16 実障害: 著作権相談の会話が続いた末にテキスト無しでエスカレートし、
-            // 以降そのユーザーへのAI応答が完全に止まった）。
+            // 以降そのユーザーへのAI応答が完全に止まった）。safeSendTextによりreplyToken
+            // 失効時もpushMessageで確実に届く。
             const escalationNotice = groqResult.text || 'ちょっと待っててね、中の人につなぐね。';
-            await lineClient.replyMessage(event.replyToken, [{ type: 'text', text: escalationNotice }]);
-            replyTokenConsumed = true;
+            await safeSendText(escalationNotice);
             await logOutgoingGroq(escalationNotice, 'groq_reply');
           } else if (groqResult.kind === 'fail_closed') {
-            await lineClient.replyMessage(event.replyToken, [
-              { type: 'text', text: groqResult.escalationText },
-            ]);
-            replyTokenConsumed = true;
+            await safeSendText(groqResult.escalationText);
             await logOutgoingGroq(groqResult.escalationText, 'groq_reply');
           }
         } catch (err) {
@@ -785,13 +815,12 @@ async function handleEvent(
           // コードバグ等）。ここまでの各分岐(canned/reply/escalate/fail_closed)はすべて
           // pipeline内部で吸収済みの正常系なので、この catch に来るのは本当に予期しない失敗のみ。
           // 何も返さずに終わるとユーザーには「既読無視」に見えるため、最終防波堤として
-          // 固定の詫び文言だけは必ず返す（replyTokenが既に使用済みなら黙って諦める）。
+          // 固定の詫び文言だけは必ず返す（safeSendTextがreplyToken失効時もpushで届ける）。
           console.error('Groq support pipeline failed', err instanceof Error ? err.stack : String(err));
           if (!replyTokenConsumed) {
             try {
               const fallbackText = 'すみません、うまく応答できませんでした。少し時間をおいて、もう一度お試しください。';
-              await lineClient.replyMessage(event.replyToken, [{ type: 'text', text: fallbackText }]);
-              replyTokenConsumed = true;
+              await safeSendText(fallbackText);
               await logOutgoingGroq(fallbackText, 'groq_reply');
             } catch (replyErr) {
               console.error('Groq failure fallback reply also failed', replyErr instanceof Error ? replyErr.stack : String(replyErr));

@@ -120,6 +120,12 @@ export type Env = {
     // When set, takes priority over ANTHROPIC_API_KEY; fail-closed does NOT
     // fall back to Claude (cost guard).
     GROQ_API_KEY?: string;
+    // 2026-07-17 Fable設計「無応答ゼロ化アーキテクチャ」: 無応答チェーンの2番手
+    // (services/llm-chain.ts)。未設定ならGemini段は静かにスキップされる。
+    GEMINI_API_KEY?: string;
+    // 無応答チェーンの3番手（Worker内バインディング。外部egressが無く障害
+    // ドメインが独立）。wrangler.tomlの[ai] bindingで注入される。
+    AI?: Ai;
     // Fine-grained PAT scoped to kimito-link/ai-shain-worker (Issues: read/write
     // only). Used by webhook.ts to create a GitHub Issue when an incoming LINE
     // message starts with the "タスク:" prefix — this is the "personal AI
