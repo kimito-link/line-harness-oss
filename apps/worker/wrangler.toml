@@ -59,6 +59,13 @@ CF_ACCOUNT_ID = "YOUR_DEV_ACCOUNT_ID"
 account_id = "YOUR_ACCOUNT_ID"
 compatibility_flags = ["nodejs_compat"]
 
+# Workers Logs を有効化（2026-07-17追加）。過去ログをCloudflareダッシュボードの
+# Workers & Pages → kimitolink-line → Logs タブで後から検索できるようにする。
+# これまでは wrangler tail のリアルタイム待ち伏せしか手段が無く、無応答障害の
+# 事後解析ができなかった（実行時間・エラー内容が分からないまま原因を推測するしかなかった）。
+[env.production.observability]
+enabled = true
+
 [env.production.assets]
 directory = "dist/client"
 binding = "ASSETS"
