@@ -725,6 +725,16 @@ async function handleEvent(
           llmHandled = true;
         } catch (err) {
           console.error('ai-shain-worker task creation failed', err instanceof Error ? err.stack : String(err));
+          if (!replyTokenConsumed) {
+            try {
+              const fallbackText = 'すみません、タスク登録処理でエラーが発生しました。';
+              await lineClient.replyMessage(event.replyToken, [{ type: 'text', text: fallbackText }]);
+              replyTokenConsumed = true;
+              await logOutgoingGroq(fallbackText, 'groq_reply');
+            } catch (replyErr) {
+              console.error('Task creation failure fallback reply also failed', replyErr instanceof Error ? replyErr.stack : String(replyErr));
+            }
+          }
         }
       } else if (groqApiKey) {
         try {
@@ -767,7 +777,22 @@ async function handleEvent(
             await logOutgoingGroq(groqResult.escalationText, 'groq_reply');
           }
         } catch (err) {
+          // runGroqSupportPipeline自体が想定外の例外を投げた場合（ネットワーク断・D1エラー・
+          // コードバグ等）。ここまでの各分岐(canned/reply/escalate/fail_closed)はすべて
+          // pipeline内部で吸収済みの正常系なので、この catch に来るのは本当に予期しない失敗のみ。
+          // 何も返さずに終わるとユーザーには「既読無視」に見えるため、最終防波堤として
+          // 固定の詫び文言だけは必ず返す（replyTokenが既に使用済みなら黙って諦める）。
           console.error('Groq support pipeline failed', err instanceof Error ? err.stack : String(err));
+          if (!replyTokenConsumed) {
+            try {
+              const fallbackText = 'すみません、うまく応答できませんでした。少し時間をおいて、もう一度お試しください。';
+              await lineClient.replyMessage(event.replyToken, [{ type: 'text', text: fallbackText }]);
+              replyTokenConsumed = true;
+              await logOutgoingGroq(fallbackText, 'groq_reply');
+            } catch (replyErr) {
+              console.error('Groq failure fallback reply also failed', replyErr instanceof Error ? replyErr.stack : String(replyErr));
+            }
+          }
         }
       } else if (anthropicApiKey) {
         try {
