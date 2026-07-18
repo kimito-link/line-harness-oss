@@ -179,7 +179,10 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path.match(/^\/api\/forms\/[^/]+$/) || // GET form definition (public for LIFF)
     path === '/api/meet-callback' || // Meet Harness completion callback
     path === '/api/qr' || // Public QR proxy — used by desktop landing pages
-    path === '/api/health' // Liveness probe (update CLI / self-update verify)
+    path === '/api/health' || // Liveness probe (update CLI / self-update verify)
+    // /shindan/ 診断ページ（2026-07-18追加）— staffのCookie/Bearer認証とは別に
+    // x-diag-password ヘッダで自前ゲートする（routes/diag.ts参照）。
+    path === '/api/diag/bot-health'
   ) {
     return next();
   }
