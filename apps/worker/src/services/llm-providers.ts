@@ -235,6 +235,164 @@ export async function callGeminiVision(apiKey: string, model: string, params: Vi
   );
 }
 
+// media-describe.ts専用の型（2026-07-19動画・音声認識機能追加）。動画・音声はGeminiのみ
+// 対応（Groq/Workers AIはこの入力形式に対応していない）。
+
+export interface AudioCallParams {
+  /** describe指示文（人格プロンプトは不要）。 */
+  prompt: string;
+  /** base64エンコード済み音声データ（data URIのprefixは含まない）。 */
+  audioBase64: string;
+  /** OpenAI互換input_audioのformat値。'wav'|'mp3'等（LINEはm4a/aacが多いがGemini側はmp3扱いで通ることを実機検証、非対応時はfail-closed）。 */
+  format: string;
+  maxOutputTokens: number;
+  timeoutMs: number;
+}
+
+/**
+ * Gemini音声モデル向け（OpenAI互換エンドポイントのinput_audio content type）。
+ * 実機検証済み: video_urlと違いinput_audioはOpenAI互換層で正しく受理される
+ * （2026-07-19、フォーマット不正なら400、受理されればクォータ制限時も429が返ることで確認）。
+ * fail-closedでnull。
+ */
+export async function callGeminiAudio(apiKey: string, model: string, params: AudioCallParams): Promise<string | null> {
+  const { prompt, audioBase64, format, maxOutputTokens, timeoutMs } = params;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxOutputTokens,
+        temperature: 0.3,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'input_audio', input_audio: { data: audioBase64, format } },
+            ],
+          },
+        ],
+      }),
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn('[llm-providers] audio fetch failed', err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (response.status === 429) {
+    console.warn('[llm-providers] audio rate limited (429)');
+    return null;
+  }
+  if (!response.ok) {
+    console.warn('[llm-providers] audio API error', response.status, await response.text().catch(() => ''));
+    return null;
+  }
+
+  let data: { choices?: Array<{ message?: { content?: string; reasoning_content?: string; reasoning?: string } }> };
+  try {
+    data = await response.json();
+  } catch {
+    return null;
+  }
+
+  const msg = data.choices?.[0]?.message;
+  const rawText = (msg?.content || msg?.reasoning_content || msg?.reasoning || '').trim();
+  if (!rawText) return null;
+  const cleaned = stripThinking(rawText).replace(ESCALATION_MARKER, '').trim();
+  return cleaned || null;
+}
+
+export interface VideoCallParams {
+  /** describe指示文（人格プロンプトは不要）。 */
+  prompt: string;
+  /** base64エンコード済み動画データ（data URIのprefixは含まない）。 */
+  videoBase64: string;
+  mimeType: string;
+  maxOutputTokens: number;
+  timeoutMs: number;
+}
+
+/**
+ * Gemini動画モデル向け（ネイティブgenerateContent APIのinline_data）。
+ * OpenAI互換chat/completionsはvideo_url content typeを拒否する（400 Invalid content
+ * part type）ことを実機検証済みのため、動画のみこのネイティブAPI経路を使う
+ * （2026-07-19動画・音声認識機能追加）。レスポンス形式がOpenAI互換と異なるため
+ * 専用パーサーを持つ。fail-closedでnull。
+ */
+export async function callGeminiVideo(apiKey: string, model: string, params: VideoCallParams): Promise<string | null> {
+  const { prompt, videoBase64, mimeType, maxOutputTokens, timeoutMs } = params;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType, data: videoBase64 } },
+            ],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens,
+          temperature: 0.3,
+        },
+      }),
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn('[llm-providers] video fetch failed', err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (response.status === 429) {
+    console.warn('[llm-providers] video rate limited (429)');
+    return null;
+  }
+  if (!response.ok) {
+    console.warn('[llm-providers] video API error', response.status, await response.text().catch(() => ''));
+    return null;
+  }
+
+  let data: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  try {
+    data = await response.json();
+  } catch {
+    return null;
+  }
+
+  const rawText = (data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '').trim();
+  if (!rawText) return null;
+  const cleaned = stripThinking(rawText).replace(ESCALATION_MARKER, '').trim();
+  return cleaned || null;
+}
+
 /** Cloudflare Workers AI（Workerバインディング経由。外部ネットワークegressが無く障害ドメインが独立）。 */
 export async function callWorkersAi(
   ai: Ai,

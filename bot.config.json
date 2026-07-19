@@ -20,6 +20,20 @@
         { "provider": "groq", "model": "qwen/qwen3.6-27b", "timeoutMs": 10000 },
         { "provider": "gemini", "model": "gemini-2.5-flash-lite", "timeoutMs": 10000 }
       ]
+    },
+    "video": {
+      "enabled": true,
+      "model": "gemini-2.5-flash-lite",
+      "timeoutMs": 15000,
+      "maxDescriptionTokens": 250,
+      "maxInputBytes": 15728640
+    },
+    "audio": {
+      "enabled": true,
+      "model": "gemini-2.5-flash-lite",
+      "timeoutMs": 15000,
+      "maxDescriptionTokens": 250,
+      "maxInputBytes": 15728640
     }
   },
   "line": {

@@ -19,6 +19,22 @@ export interface BotVisionConfig {
   maxDescriptionTokens: number;
 }
 
+/**
+ * 動画・音声の説明文生成設定（2026-07-19追加）。visionと違いGeminiのみ対応
+ * （動画: OpenAI互換chat/completionsはvideo_url content typeを受け付けず、
+ * ネイティブgenerateContent APIのinline_dataでのみ動作することを実機検証で確認。
+ * 音声: OpenAI互換のinput_audio content typeで動作するが、提供元をGeminiに揃える）。
+ * Groq/Workers AIは動画・音声inputに対応していないためチェーン化しない。
+ */
+export interface BotMediaConfig {
+  enabled: boolean;
+  model: string;
+  timeoutMs: number;
+  maxDescriptionTokens: number;
+  /** この値(バイト)を超える動画・音声はdescribeを諦め、[動画]/[音声]ラベルのみ保存する（fail-closed）。 */
+  maxInputBytes: number;
+}
+
 export interface BotLlmConfig {
   provider: 'groq';
   model: string;
@@ -34,6 +50,10 @@ export interface BotLlmConfig {
   chain: BotLlmChainStage[];
   /** 画像認識のvisionチェーン設定（2026-07-17追加）。未指定時はdisabled（後方互換）。 */
   vision?: BotVisionConfig;
+  /** 動画の説明文生成設定（2026-07-19追加）。未指定時はdisabled（後方互換）。 */
+  video?: BotMediaConfig;
+  /** 音声の説明文生成設定（2026-07-19追加）。未指定時はdisabled（後方互換）。 */
+  audio?: BotMediaConfig;
 }
 
 export interface BotCacheConfig {
@@ -68,9 +88,11 @@ export interface BotConfig {
   urlContext: BotUrlContextConfig;
 }
 
-type RawBotLlmConfig = Omit<BotLlmConfig, 'chain' | 'vision'> & {
+type RawBotLlmConfig = Omit<BotLlmConfig, 'chain' | 'vision' | 'video' | 'audio'> & {
   chain?: BotLlmChainStage[];
   vision?: Partial<BotVisionConfig>;
+  video?: Partial<BotMediaConfig>;
+  audio?: Partial<BotMediaConfig>;
 };
 
 type RawBotConfig = {
@@ -109,11 +131,27 @@ export function getBotConfig(): BotConfig {
     maxDescriptionTokens: raw.llm.vision?.maxDescriptionTokens ?? 250,
   };
 
+  // video/audio未指定時はdisabled（既存bot.config.jsonの後方互換。2026-07-19動画・音声認識機能追加）。
+  const video: BotMediaConfig = {
+    enabled: raw.llm.video?.enabled ?? false,
+    model: raw.llm.video?.model ?? 'gemini-2.5-flash-lite',
+    timeoutMs: raw.llm.video?.timeoutMs ?? 15000,
+    maxDescriptionTokens: raw.llm.video?.maxDescriptionTokens ?? 250,
+    maxInputBytes: raw.llm.video?.maxInputBytes ?? 15 * 1024 * 1024,
+  };
+  const audio: BotMediaConfig = {
+    enabled: raw.llm.audio?.enabled ?? false,
+    model: raw.llm.audio?.model ?? 'gemini-2.5-flash-lite',
+    timeoutMs: raw.llm.audio?.timeoutMs ?? 15000,
+    maxDescriptionTokens: raw.llm.audio?.maxDescriptionTokens ?? 250,
+    maxInputBytes: raw.llm.audio?.maxInputBytes ?? 15 * 1024 * 1024,
+  };
+
   return {
     project: defaultProject,
     defaultProject,
     projects,
-    llm: { ...raw.llm, chain, vision },
+    llm: { ...raw.llm, chain, vision, video, audio },
     cache: {
       enabled: raw.cache?.enabled ?? true,
       ttlHours: raw.cache?.ttlHours ?? 72,

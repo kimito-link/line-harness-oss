@@ -1,0 +1,142 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+const callGeminiVideoMock = vi.fn();
+const callGeminiAudioMock = vi.fn();
+vi.mock('./llm-providers.js', () => ({
+  callGeminiVideo: (...args: unknown[]) => callGeminiVideoMock(...args),
+  callGeminiAudio: (...args: unknown[]) => callGeminiAudioMock(...args),
+}));
+
+const { describeVideo, describeAudio } = await import('./media-describe.js');
+
+const SMALL_VIDEO = new ArrayBuffer(1024); // 1KB
+const LARGE_VIDEO = new ArrayBuffer(16 * 1024 * 1024); // 16MB, over the 15MB default cutoff
+
+const baseVideoConfig = { enabled: true, model: 'gemini-2.5-flash-lite', timeoutMs: 15000, maxDescriptionTokens: 250, maxInputBytes: 15 * 1024 * 1024 };
+
+const baseVideoParams = {
+  bytes: SMALL_VIDEO,
+  contentType: 'video/mp4',
+  config: baseVideoConfig,
+  geminiApiKey: 'gemini-test',
+  receivedAt: Date.now(),
+};
+
+describe('describeVideo', () => {
+  beforeEach(() => {
+    callGeminiVideoMock.mockReset();
+  });
+
+  it('returns null immediately when disabled (no calls made)', async () => {
+    const result = await describeVideo({ ...baseVideoParams, config: { ...baseVideoConfig, enabled: false } });
+    expect(result).toBeNull();
+    expect(callGeminiVideoMock).not.toHaveBeenCalled();
+  });
+
+  it('returns null immediately when geminiApiKey is missing', async () => {
+    const result = await describeVideo({ ...baseVideoParams, geminiApiKey: undefined });
+    expect(result).toBeNull();
+    expect(callGeminiVideoMock).not.toHaveBeenCalled();
+  });
+
+  it('calls callGeminiVideo and returns its result on success', async () => {
+    callGeminiVideoMock.mockResolvedValue('猫が歩いている動画です。');
+    const result = await describeVideo(baseVideoParams);
+    expect(result).toBe('猫が歩いている動画です。');
+    expect(callGeminiVideoMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed (no call) for videos over maxInputBytes', async () => {
+    const result = await describeVideo({ ...baseVideoParams, bytes: LARGE_VIDEO });
+    expect(result).toBeNull();
+    expect(callGeminiVideoMock).not.toHaveBeenCalled();
+  });
+
+  it('returns null (fail-closed) when the API call fails', async () => {
+    callGeminiVideoMock.mockResolvedValue(null);
+    const result = await describeVideo(baseVideoParams);
+    expect(result).toBeNull();
+  });
+
+  it('skips when remaining time is under timeout + margin', async () => {
+    // deadline = 45000ms. receivedAt 36000ms ago -> remaining ~9000ms.
+    // timeoutMs=15000 + 15000 margin = 30000 > 9000 -> skip.
+    callGeminiVideoMock.mockResolvedValue('should not be reached');
+    const receivedAt = Date.now() - 36_000;
+    const result = await describeVideo({ ...baseVideoParams, receivedAt });
+    expect(result).toBeNull();
+    expect(callGeminiVideoMock).not.toHaveBeenCalled();
+  });
+
+  it('passes mimeType through to callGeminiVideo', async () => {
+    callGeminiVideoMock.mockResolvedValue('説明');
+    await describeVideo(baseVideoParams);
+    const [, , callParams] = callGeminiVideoMock.mock.calls[0];
+    expect(callParams.mimeType).toBe('video/mp4');
+  });
+});
+
+const SMALL_AUDIO = new ArrayBuffer(1024);
+const LARGE_AUDIO = new ArrayBuffer(16 * 1024 * 1024);
+
+const baseAudioConfig = { enabled: true, model: 'gemini-2.5-flash-lite', timeoutMs: 15000, maxDescriptionTokens: 250, maxInputBytes: 15 * 1024 * 1024 };
+
+const baseAudioParams = {
+  bytes: SMALL_AUDIO,
+  contentType: 'audio/m4a',
+  config: baseAudioConfig,
+  geminiApiKey: 'gemini-test',
+  receivedAt: Date.now(),
+};
+
+describe('describeAudio', () => {
+  beforeEach(() => {
+    callGeminiAudioMock.mockReset();
+  });
+
+  it('returns null immediately when disabled (no calls made)', async () => {
+    const result = await describeAudio({ ...baseAudioParams, config: { ...baseAudioConfig, enabled: false } });
+    expect(result).toBeNull();
+    expect(callGeminiAudioMock).not.toHaveBeenCalled();
+  });
+
+  it('returns null immediately when geminiApiKey is missing', async () => {
+    const result = await describeAudio({ ...baseAudioParams, geminiApiKey: undefined });
+    expect(result).toBeNull();
+    expect(callGeminiAudioMock).not.toHaveBeenCalled();
+  });
+
+  it('calls callGeminiAudio and returns its result on success', async () => {
+    callGeminiAudioMock.mockResolvedValue('挨拶をしている音声です。');
+    const result = await describeAudio(baseAudioParams);
+    expect(result).toBe('挨拶をしている音声です。');
+    expect(callGeminiAudioMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed (no call) for audio over maxInputBytes', async () => {
+    const result = await describeAudio({ ...baseAudioParams, bytes: LARGE_AUDIO });
+    expect(result).toBeNull();
+    expect(callGeminiAudioMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for unsupported content types', async () => {
+    const result = await describeAudio({ ...baseAudioParams, contentType: 'audio/x-unknown' });
+    expect(result).toBeNull();
+    expect(callGeminiAudioMock).not.toHaveBeenCalled();
+  });
+
+  it('maps a known content type to the expected format identifier', async () => {
+    callGeminiAudioMock.mockResolvedValue('説明');
+    await describeAudio({ ...baseAudioParams, contentType: 'audio/wav' });
+    const [, , callParams] = callGeminiAudioMock.mock.calls[0];
+    expect(callParams.format).toBe('wav');
+  });
+
+  it('skips when remaining time is under timeout + margin', async () => {
+    callGeminiAudioMock.mockResolvedValue('should not be reached');
+    const receivedAt = Date.now() - 36_000;
+    const result = await describeAudio({ ...baseAudioParams, receivedAt });
+    expect(result).toBeNull();
+    expect(callGeminiAudioMock).not.toHaveBeenCalled();
+  });
+});

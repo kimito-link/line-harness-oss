@@ -611,6 +611,30 @@ async function handleEvent(
       }
     }
 
+    // video/audio も image と同じ形で LINE Content API → R2 → JSON URL に置換する
+    // （2026-07-19動画・音声認識機能追加）。失敗時は labels[msg.type] のラベル文字列のまま。
+    let mediaBytes: ArrayBuffer | undefined;
+    let mediaContentType: string | undefined;
+    let mediaOriginalContentUrl: string | undefined;
+    if ((msg.type === 'video' || msg.type === 'audio') && r2 && workerUrl) {
+      const lineMessageId = msg.id;
+      const { fetchAndStoreIncomingMedia } = await import('../services/incoming-media.js');
+      const refs = await fetchAndStoreIncomingMedia({
+        r2,
+        workerUrl,
+        channelAccessToken: lineAccessToken,
+        accountId: lineAccountId ?? 'unknown',
+        messageId: lineMessageId,
+        kind: msg.type,
+      });
+      if (refs) {
+        mediaOriginalContentUrl = refs.originalContentUrl;
+        finalContent = JSON.stringify({ originalContentUrl: mediaOriginalContentUrl });
+        mediaBytes = refs.bytes;
+        mediaContentType = refs.contentType;
+      }
+    }
+
     const imageLogId = crypto.randomUUID();
     await db
       .prepare(
@@ -700,6 +724,76 @@ async function handleEvent(
           // （記録済み+unread、返信なし）に静かに戻る。fail-closed。
         } catch (err) {
           console.error('[webhook] image vision pipeline failed', err instanceof Error ? err.stack : String(err));
+        }
+      }
+    }
+
+    // 動画・音声認識（2026-07-19追加）。imageと同じ2段方式・同じ順序ガード
+    // （groq_reply_enabled/予算超過ゲートをdescribe前に通す）。visionと違いGeminiのみ対応
+    // （groq-config.ts BotMediaConfig参照）なのでチェーンではなく単発呼び出し。
+    if ((msg.type === 'video' || msg.type === 'audio') && mediaBytes && mediaContentType && geminiApiKey) {
+      const mediaConfig = msg.type === 'video' ? getBotConfig().llm.video : getBotConfig().llm.audio;
+      if (mediaConfig?.enabled) {
+        const groqConfig = await getGroqReplyConfig(db, lineAccountId);
+        const budgetExceeded = groqConfig.enabled && (await isGroqBudgetExceeded(db, lineAccountId));
+        if (groqConfig.enabled && !budgetExceeded) {
+          try {
+            const { describeVideo, describeAudio } = await import('../services/media-describe.js');
+            const description =
+              msg.type === 'video'
+                ? await describeVideo({ bytes: mediaBytes, contentType: mediaContentType, config: mediaConfig, geminiApiKey, receivedAt })
+                : await describeAudio({ bytes: mediaBytes, contentType: mediaContentType, config: mediaConfig, geminiApiKey, receivedAt });
+
+            if (description) {
+              try {
+                await db
+                  .prepare(`UPDATE messages_log SET content = ? WHERE id = ?`)
+                  .bind(
+                    JSON.stringify({ originalContentUrl: mediaOriginalContentUrl, visionSummary: description }),
+                    imageLogId,
+                  )
+                  .run();
+              } catch (err) {
+                console.error('[webhook] media visionSummary UPDATE failed', err);
+              }
+
+              const project = await resolveBotProject(db, friend);
+              const mediaLabel = msg.type === 'video' ? '動画' : '音声';
+              const groqResult = await runGroqSupportPipeline({
+                db,
+                apiKey: groqApiKey,
+                geminiApiKey,
+                workersAi,
+                receivedAt,
+                lineAccountId,
+                friendId: friend.id,
+                // imageと同じくメタ記法（客観描写タスクだと誤認識させる書き方）を避け、
+                // ユーザーが動画/音声を見せてきたという会話的状況として渡す（2026-07-18実障害の教訓）。
+                incomingText: `（${mediaLabel}を送ってきました。内容は次の通りです: ${description}）この${mediaLabel}を見て、あなたらしく反応してください。`,
+                project,
+                cachePolicy: 'skip',
+                excludeLogId: imageLogId,
+              });
+
+              if (groqResult.kind === 'canned' || groqResult.kind === 'reply') {
+                await sendSafeText(lineClient, event.replyToken, friend.line_user_id, groqResult.text, receivedAt, false);
+                await logOutgoingGroqMessage(db, friend.id, groqResult.text, groqResult.kind === 'canned' ? 'groq_canned' : 'groq_reply');
+                imageLlmHandled = true;
+              } else if (groqResult.kind === 'escalate') {
+                await switchToHumanMode(db, friend.id);
+                const escalationNotice = groqResult.text || 'ちょっと待っててね、中の人につなぐね。';
+                await sendSafeText(lineClient, event.replyToken, friend.line_user_id, escalationNotice, receivedAt, false);
+                await logOutgoingGroqMessage(db, friend.id, escalationNotice, 'groq_reply');
+              } else if (groqResult.kind === 'fail_closed') {
+                await sendSafeText(lineClient, event.replyToken, friend.line_user_id, groqResult.escalationText, receivedAt, false);
+                await logOutgoingGroqMessage(db, friend.id, groqResult.escalationText, 'groq_reply');
+              }
+            }
+            // description === null（チェーン失敗・サイズ超過・未対応フォーマット等）→
+            // 現状動作（記録済み+unread、返信なし）に静かに戻る。fail-closed。
+          } catch (err) {
+            console.error('[webhook] media describe pipeline failed', err instanceof Error ? err.stack : String(err));
+          }
         }
       }
     }

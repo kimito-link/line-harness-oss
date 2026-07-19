@@ -46,6 +46,28 @@
               }
             }
           }
+        },
+        "video": {
+          "type": "object",
+          "description": "動画の説明文生成設定（2026-07-19追加）。省略可: 未指定ならdisabled。Geminiのみ対応（OpenAI互換chat/completionsはvideo_url非対応、ネイティブgenerateContent APIのinline_dataでのみ動作するため）。",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "model": { "type": "string" },
+            "timeoutMs": { "type": "integer", "minimum": 1000 },
+            "maxDescriptionTokens": { "type": "integer", "minimum": 32 },
+            "maxInputBytes": { "type": "integer", "minimum": 1, "description": "この値を超える動画はdescribeを諦め[動画]ラベルのみ保存する（fail-closed）。" }
+          }
+        },
+        "audio": {
+          "type": "object",
+          "description": "音声の説明文生成設定（2026-07-19追加）。省略可: 未指定ならdisabled。Geminiのみ対応（OpenAI互換chat/completionsのinput_audio content typeを使用）。",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "model": { "type": "string" },
+            "timeoutMs": { "type": "integer", "minimum": 1000 },
+            "maxDescriptionTokens": { "type": "integer", "minimum": 32 },
+            "maxInputBytes": { "type": "integer", "minimum": 1, "description": "この値を超える音声はdescribeを諦め[音声]ラベルのみ保存する（fail-closed）。" }
+          }
         }
       }
     },
