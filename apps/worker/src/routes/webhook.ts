@@ -674,6 +674,10 @@ async function handleEvent(
               incomingText: `（画像を送ってきました。写っているのは次の内容です: ${description}）この画像を見て、あなたらしく反応してください。`,
               project,
               cachePolicy: 'skip',
+              // 履歴の最後に今回の画像行(imageLogId)自体が`[画像: 客観描写]`という
+              // 素っ気ない別テキストで混入し、上のincomingText（人格指示込み）と
+              // 食い違ったまま履歴側が優先される事故を防ぐ（2026-07-19 実障害）。
+              excludeLogId: imageLogId,
             });
 
             if (groqResult.kind === 'canned' || groqResult.kind === 'reply') {
@@ -931,6 +935,10 @@ async function handleEvent(
             project,
             externalContext,
             cachePolicy: externalContext ? 'skip' : 'normal',
+            // 履歴の最後に今回のテキスト行(logId)自体が紛れ込むのを防ぐ。テキストの
+            // 場合は履歴側とincomingTextが同一文字列なので実害は無いが、画像経路と
+            // 同じ扱いに揃えて一貫させる（2026-07-19 実障害の修正、groq-reply.ts参照）。
+            excludeLogId: logId,
           });
 
           if (groqResult.kind === 'canned' || groqResult.kind === 'reply') {

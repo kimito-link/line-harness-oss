@@ -53,9 +53,18 @@ async function callOpenAiCompatible(
   params: LlmCallParams,
 ): Promise<GroqReplyResult> {
   const { systemPrompt, messages, incomingText, maxOutputTokens, timeoutMs } = params;
+  // messages（DB履歴）の末尾には「今回受信した行」がそのまま入っている（buildGroqHistoryが
+  // messages_logをmessage_type IN ('text','image')でLIMIT取得するため、直前にINSERT/UPDATE
+  // 済みの今回分も含まれる）。テキストの場合はincomingTextと同一文字列なので実害が無いが、
+  // 画像の場合は履歴側が`[画像: 客観描写]`という素っ気ない別テキストになり、
+  // 「あなたらしく反応してください」という指示を含むincomingTextと食い違う。
+  // 履歴に何が入っていてもincomingText（今回LLMに伝えたい実際の指示）は必ず最後のuser発言
+  // として届くよう、常にmessages配列の末尾に追加する（2026-07-19 実障害: 画像に無機質な
+  // 客観描写だけを返す不具合の修正）。
   const chatMessages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...(messages.length > 0 ? messages : [{ role: 'user' as const, content: incomingText }]),
+    ...messages,
+    { role: 'user', content: incomingText },
   ];
 
   const controller = new AbortController();

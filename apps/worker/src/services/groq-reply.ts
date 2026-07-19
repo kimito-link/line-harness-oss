@@ -53,15 +53,30 @@ function imageRowToHistoryText(content: string): string {
 export async function buildGroqHistory(
   db: D1Database,
   friendId: string,
+  excludeLogId?: string,
 ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
-  const rows = await db
-    .prepare(
-      `SELECT direction, content, message_type FROM messages_log
-       WHERE friend_id = ? AND message_type IN ('text', 'image')
-       ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(friendId, MAX_HISTORY_MESSAGES)
-    .all<{ direction: string; content: string; message_type: string }>();
+  // excludeLogId: 呼び出し元がこの受信を処理する前にmessages_logへ既にINSERT/UPDATE
+  // 済みの「今回自身の行」のid。指定しないと直近履歴の末尾に今回分が紛れ込み、
+  // 呼び出し側が別途渡すincomingText（画像のvision説明+人格指示などの実際の
+  // LLM向けテキスト）と食い違ったまま履歴の方が優先されてしまう
+  // （2026-07-19 実障害: 画像に無機質な客観描写だけを返す不具合の根本原因）。
+  const rows = excludeLogId
+    ? await db
+        .prepare(
+          `SELECT direction, content, message_type FROM messages_log
+           WHERE friend_id = ? AND message_type IN ('text', 'image') AND id != ?
+           ORDER BY created_at DESC LIMIT ?`,
+        )
+        .bind(friendId, excludeLogId, MAX_HISTORY_MESSAGES)
+        .all<{ direction: string; content: string; message_type: string }>()
+    : await db
+        .prepare(
+          `SELECT direction, content, message_type FROM messages_log
+           WHERE friend_id = ? AND message_type IN ('text', 'image')
+           ORDER BY created_at DESC LIMIT ?`,
+        )
+        .bind(friendId, MAX_HISTORY_MESSAGES)
+        .all<{ direction: string; content: string; message_type: string }>();
 
   return rows.results
     .reverse()

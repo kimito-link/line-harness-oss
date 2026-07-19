@@ -186,6 +186,17 @@ const SHINDAN_HTML = `<!doctype html>
     .card.intro { background: #17263a; border-color: #2a4a6e; }
     .kcard { background: #1a1c20; border-color: #333; }
     .kcard.gray { background: #22252b; color: #888; }
+    .kcard.red { background: #3a1414; border-color: #6e2626; }
+    .kcard.red .value, .kcard.red .label, .kcard.red .msg { color: #ff9d9d; }
+    .kcard.yellow { background: #3a3012; border-color: #6e5a20; }
+    .kcard.yellow .value, .kcard.yellow .label, .kcard.yellow .msg { color: #f5d878; }
+    .kcard.green { background: #123a1e; border-color: #1f6e3a; }
+    .kcard.green .value, .kcard.green .label, .kcard.green .msg { color: #7de3a0; }
+    .verdict.red { background: #3a1414; color: #ff9d9d; border-color: #6e2626; }
+    .verdict.yellow { background: #3a3012; color: #f5d878; border-color: #6e5a20; }
+    .verdict.green { background: #123a1e; color: #7de3a0; border-color: #1f6e3a; }
+    .verdict.gray { background: #2a2d33; color: #ccc; border-color: #444; }
+    .verdict-note { color: #999; }
     #privacy { color: #ccc; }
     #privacy b { color: #fff; }
     #verMeta { color: #999; }
