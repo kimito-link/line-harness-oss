@@ -727,9 +727,31 @@ async function handleEvent(
           }
 
           try {
+            // Tier 0: Bot送信済み動画とのSHA-256完全一致判定（2026-07-20 BEST-IN-CLASS-DESIGN.md
+            // §2.2/2.4）。Geminiの客観描写は毎回表現が変わり、特徴語テーブル（Tier 1）だけでは
+            // 「耳に一切触れない描写」等の穴を塞ぎきれないと実機で確認済み。ヒットすればGemini
+            // describeを経由せず決定的に自己認識できる（503の影響も受けない）。fail-open:
+            // D1照合失敗・マッチなしはTier 1（describeVideo）へ自然に落ちる。
+            let exactMatch: { character: 'りんく' | 'こん太' | 'たぬ姉'; kind: string } | null = null;
+            if (msg.type === 'video' && mediaSha256) {
+              try {
+                const row = await db
+                  .prepare(`SELECT character, kind FROM bot_media_assets WHERE sha256 = ?`)
+                  .bind(mediaSha256)
+                  .first<{ character: string; kind: string }>();
+                if (row) {
+                  exactMatch = { character: row.character as 'りんく' | 'こん太' | 'たぬ姉', kind: row.kind };
+                  console.log('[self-recognition] exact hash match', JSON.stringify(exactMatch));
+                }
+              } catch (err) {
+                console.warn('[webhook] bot_media_assets lookup failed', err);
+              }
+            }
+
             const { describeVideo, describeAudio } = await import('../services/media-describe.js');
-            const description =
-              msg.type === 'video'
+            const description = exactMatch
+              ? `${exactMatch.character}の公式アニメーション動画（まばたきや笑顔の表情が動く）`
+              : msg.type === 'video'
                 ? await describeVideo({ bytes: mediaBytes, contentType: mediaContentType, config: mediaConfig, geminiApiKey, receivedAt })
                 : await describeAudio({ bytes: mediaBytes, contentType: mediaContentType, config: mediaConfig, geminiApiKey, receivedAt });
             describeOutcome = description ? 'ok' : 'null';
@@ -749,9 +771,14 @@ async function handleEvent(
 
               const project = await resolveBotProject(db, friend);
               const mediaLabel = msg.type === 'video' ? '動画' : '音声';
-              // 動画のみ自己言及判定（キャラの外見特徴は動画にしか乗らない）。判定はWorker側の
-              // 決定的な文字列マッチングで行い、LLMの推論には委ねない（_docs/SELF-RECOGNITION-DESIGN.md参照）。
-              const selfMatch = msg.type === 'video' ? matchSelfCharacter(description) : null;
+              // 動画のみ自己言及判定（キャラの外見特徴は動画にしか乗らない）。Tier 0（完全一致）が
+              // 先に決まっていればそれを使い、無ければTier 1（決定的な文字列マッチング）にフォール
+              // バックする。どちらもLLMの推論には委ねない（_docs/SELF-RECOGNITION-DESIGN.md参照）。
+              const selfMatch = exactMatch
+                ? { character: exactMatch.character, confidence: 'high' as const, matchedFeatures: ['exact_hash'] }
+                : msg.type === 'video'
+                  ? matchSelfCharacter(description)
+                  : null;
               if (selfMatch) {
                 console.log('[self-recognition] matched', JSON.stringify(selfMatch));
                 mediaSelfMatchLog = selfMatch.character;
