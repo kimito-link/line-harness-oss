@@ -598,6 +598,33 @@ async function handleEvent(
         // 実測content-type等を確認できるようにする（2026-07-20原因調査用の一時計装）。
         finalContent = `${content} (${failureReason})`;
       }
+
+      // Tier 0.5実験（2026-07-21）: dHash較正のための観測ログのみ。判定にはまだ
+      // 使わない（Fable設計書 Phase C 較正プロトコル §1）。動画のみ対象。
+      // previewはR2に保存せずメモリ上で計算だけして捨てる。
+      if (msg.type === 'video') {
+        try {
+          const { fetchIncomingMediaPreview } = await import('../services/incoming-media.js');
+          const preview = await fetchIncomingMediaPreview({
+            channelAccessToken: lineAccessToken,
+            messageId: lineMessageId,
+          });
+          if (preview) {
+            const { computeDHash } = await import('../services/phash.js');
+            const dhash = computeDHash(preview.bytes);
+            console.log('[phash-observe]', JSON.stringify({
+              messageId: lineMessageId,
+              previewBytes: preview.bytes.byteLength,
+              previewContentType: preview.contentType,
+              dhash,
+            }));
+          } else {
+            console.log('[phash-observe]', JSON.stringify({ messageId: lineMessageId, preview: 'unavailable' }));
+          }
+        } catch (err) {
+          console.warn('[phash-observe] failed', err instanceof Error ? err.message : String(err));
+        }
+      }
     }
 
     const imageLogId = crypto.randomUUID();

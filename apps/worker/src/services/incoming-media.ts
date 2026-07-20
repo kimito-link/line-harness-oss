@@ -27,6 +27,53 @@ const AUDIO_CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'audio/flac': 'flac',
 };
 
+export interface FetchPreviewOptions {
+  /** workers 環境では globalThis.fetch を使う。テスト時に注入する。 */
+  fetch?: typeof fetch;
+  channelAccessToken: string;
+  messageId: string;
+}
+
+export interface PreviewResult {
+  bytes: ArrayBuffer;
+  contentType: string;
+}
+
+/**
+ * LINE Content APIの `/content/preview` からサムネイル静止画（JPEG）を取得する
+ * （2026-07-21 dHash Tier 0.5実験用）。動画メッセージのみ対応。失敗はnull（fail-open、
+ * 呼び出し側は本体describe等の既存経路にそのまま委ねる）。R2への保存はしない
+ * （数十KB程度でメモリ渡しのみ、判定用途に留めるため）。
+ */
+export async function fetchIncomingMediaPreview(opts: FetchPreviewOptions): Promise<PreviewResult | null> {
+  const fetcher = opts.fetch ?? fetch;
+  let res: Response;
+  try {
+    res = await fetcher(`${LINE_CONTENT_API_BASE}/${opts.messageId}/content/preview`, {
+      headers: { Authorization: `Bearer ${opts.channelAccessToken}` },
+    });
+  } catch (err) {
+    console.warn('incoming-media: preview fetch failed', { err, messageId: opts.messageId });
+    return null;
+  }
+
+  if (!res.ok) {
+    console.warn('incoming-media: preview non-200', { status: res.status, messageId: opts.messageId });
+    return null;
+  }
+
+  const contentType = res.headers.get('Content-Type')?.split(';')[0].trim() ?? 'image/jpeg';
+  let data: ArrayBuffer;
+  try {
+    data = await res.arrayBuffer();
+  } catch (err) {
+    console.warn('incoming-media: preview arrayBuffer failed', { err, messageId: opts.messageId });
+    return null;
+  }
+
+  return { bytes: data, contentType };
+}
+
 export interface FetchAndStoreMediaOptions {
   r2: R2Bucket;
   /** workers 環境では globalThis.fetch を使う。テスト時に注入する。 */
