@@ -24,7 +24,7 @@
     "video": {
       "enabled": true,
       "model": "gemini-2.5-flash-lite",
-      "timeoutMs": 15000,
+      "timeoutMs": 22000,
       "maxDescriptionTokens": 250,
       "maxInputBytes": 15728640
     },

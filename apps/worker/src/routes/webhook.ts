@@ -741,7 +741,17 @@ async function handleEvent(
       if (mediaConfig?.enabled) {
         const groqConfig = await getGroqReplyConfig(db, lineAccountId);
         const budgetExceeded = groqConfig.enabled && (await isGroqBudgetExceeded(db, lineAccountId));
-        if (groqConfig.enabled && !budgetExceeded) {
+        // サイズ超過はdescribe呼び出し前に検出し一言だけ返す。以前はdescribe内部の
+        // fail-closedにそのまま従い完全に無言だったが、画面録画動画のように15MBを
+        // 超えやすい動画で「既読無視された」ように見える実障害が発生した(2026-07-20)。
+        const mediaTooLarge = mediaBytes.byteLength > mediaConfig.maxInputBytes;
+        if (mediaTooLarge && groqConfig.enabled && !budgetExceeded) {
+          const mediaLabel = msg.type === 'video' ? '動画' : '音声';
+          const tooLargeNotice = `ごめんね、この${mediaLabel}ファイルが大きすぎて中身を確認できなかったよ。もう少し短い${mediaLabel}なら見れるはず！`;
+          await sendSafeText(lineClient, event.replyToken, friend.line_user_id, tooLargeNotice, receivedAt, false);
+          await logOutgoingGroqMessage(db, friend.id, tooLargeNotice, 'groq_reply');
+          imageLlmHandled = true;
+        } else if (groqConfig.enabled && !budgetExceeded) {
           try {
             const { describeVideo, describeAudio } = await import('../services/media-describe.js');
             const description =
