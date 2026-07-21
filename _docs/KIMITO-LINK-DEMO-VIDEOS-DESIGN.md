@@ -1,7 +1,14 @@
-# Kimito Link デモ動画群 — 設計書
+# Kimito Link デモ動画群 — 設計書（旧版・一部無効）
 
 > 設計=Fable(claude-fable-5) ／ 素材集め=マルチLLM会議ハーネス（COUNCIL-HOWTO.md手順） ／ 裏取り・統合=司令塔Claude
 > 日付: 2026-07-21 ／ 3段構えワークフロー（council-fable）の手順2の産物
+
+> **⚠️ この設計書は「言葉で人格を自由に作れる」訴求を前提にしていたが、その後の価値提案再定義
+> （[`KIMITO-LINK-VALUE-PROPOSITION-DESIGN.md`](KIMITO-LINK-VALUE-PROPOSITION-DESIGN.md)）で
+> 人格カスタマイズ訴求は削除された。特にD章「dHashデモの扱い（格下げ・移設）」は、認識体験一本化に
+> より前提が消滅し、**[`KIMITO-LINK-DEMO-VIDEOS-LINEUP-V2-DESIGN.md`](KIMITO-LINK-DEMO-VIDEOS-LINEUP-V2-DESIGN.md)
+> のD章「格上げ確定」で明示的に上書き済み**。以降の動画制作はV2設計書を参照すること。
+> このファイルは経緯記録として残す。**制作工程の地雷（G章）のみ現在も有効。****
 
 ## 経緯
 
