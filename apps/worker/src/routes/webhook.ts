@@ -19,6 +19,7 @@ import { fireEvent } from '../services/event-bus.js';
 import { matchAndReply } from '../services/auto-reply.js';
 import { buildMessage } from '../services/step-delivery.js';
 import { pushImmediateFirstStep } from '../services/immediate-first-step.js';
+import { sendFollowGreeting } from '../services/follow-greeting.js';
 import type { Env } from '../index.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
 import { replyViaHarnessProxy } from '../services/line-proxy-send.js';
@@ -231,6 +232,12 @@ async function handleEvent(
     });
 
     console.log(`[follow] friend.id=${friend.id} friend.line_account_id=${(friend as any).line_account_id}`);
+
+    // あいさつ + 用件選択のクイックリプライ。
+    // ★push で送る（replyToken を使わない）。下のシナリオ即時配信が replyToken を
+    // 使い切る場合があるため、reply にすると二重送信/無言失敗になる。
+    // 詳細は services/follow-greeting.ts 冒頭のコメント参照。
+    await sendFollowGreeting(lineClient, userId);
 
     // Set line_account_id for multi-account tracking (always update on follow)
     if (lineAccountId) {
