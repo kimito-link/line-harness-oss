@@ -7,11 +7,14 @@ import {
 import type { LineClient } from '@line-crm/line-sdk';
 
 describe('follow-greeting', () => {
-  it('あいさつとメニューの2通を返す', () => {
+  // ★本番DB実測(2026-08-15): friend_add シナリオ「Kimito-Link ウェルカム」の step1 に
+  // あいさつ本文が delay 0 で既に入っている。ここで本文を送ると2通届く。
+  // このテストは「本文を送らない」ことを固定する。
+  it('用件選択の1通だけを返す。あいさつ本文は送らない（シナリオと二重になるため）', () => {
     const messages = buildFollowGreetingMessages();
-    expect(messages).toHaveLength(2);
-    expect(messages[0].type).toBe('text');
-    expect(messages[0].text).toContain('はじめまして');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].text).not.toContain('はじめまして');
+    expect(messages[0].quickReply).toBeDefined();
   });
 
   it('クイックリプライに2つの窓口が出る（NFCグッズ / kimito.link）', () => {
