@@ -44,7 +44,7 @@ export function DEFAULT_FORM_LINK_FLEX(formUrl: string): IntroMessage {
         contents: [
           {
             type: 'text',
-            text: '下のボタンから特典を\n受け取ってください',
+            text: '友だち追加ありがとうございます。\n下のボタンから特典を受け取ってください',
             size: 'sm',
             color: '#666666',
             align: 'center',

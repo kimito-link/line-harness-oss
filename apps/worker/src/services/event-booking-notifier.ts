@@ -51,7 +51,7 @@ export function renderEventNotificationText(
     case 'rejected':
       return `申し訳ございません、今回のイベント予約はお受けできませんでした。${detail}`;
     case 'cancelled_by_admin':
-      return `運営側でイベント予約をキャンセルさせていただきました。${detail}\n\n詳細は LINE にてご連絡ください。`;
+      return `申し訳ございません、運営側でイベント予約をキャンセルさせていただきました。${detail}\n\n詳細は LINE にてご連絡ください。`;
     case 'reminder_day_before':
       return appendExtra(`【リマインド】明日イベントが開催されます。${detail}`, ctx.reminderExtra);
     case 'reminder_hours_before': {

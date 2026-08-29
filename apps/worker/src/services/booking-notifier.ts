@@ -26,7 +26,7 @@ export function renderNotificationText(
     case 'approved':
       return `予約が確定しました。${detail}\n\n変更・キャンセルはお店に直接ご連絡ください。`;
     case 'rejected':
-      return `申し訳ありません、ご希望の枠でお取りできませんでした。\n別の日時で再度お試しください。`;
+      return `申し訳ありません、ご希望の枠でお取りできませんでした。\n別の日時であればご案内できる場合がありますので、よろしければ再度お試しください。`;
     case 'expired':
       return `予約リクエストが 24 時間返信が無かったため、期限切れになりました。${detail}`;
     case 'day_before':
